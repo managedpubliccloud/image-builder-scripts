@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    FSLogix installation script.
+    FSLogix installation script
 
 .DESCRIPTION
     This script downloads and installs FSLogix on a Windows machine.
