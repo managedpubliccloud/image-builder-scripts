@@ -16,7 +16,7 @@ pool:
 steps:
 - task: CopyFiles@2
   inputs:
-    SourceFolder: '$(System.DefaultWorkingDirectory)/AVD-Pool1-IMG/scripts/'
+    SourceFolder: '$(System.DefaultWorkingDirectory)/AVD-Pool1-IMG/scripts'
     Contents: '**'
     TargetFolder: '/'
     OverWrite: true
