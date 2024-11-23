@@ -1,0 +1,23 @@
+# Copy AVD build scripts to public repository
+# Required for Azure deployment - must be able to access public files
+
+
+trigger:
+  branches:
+    include:
+    - main
+  paths:
+    include:
+    - AVD-Pool1-IMG/scripts
+
+pool:
+  vmImage: ubuntu-latest
+
+steps:
+- task: CopyFiles@2
+  inputs:
+    SourceFolder: '$(System.DefaultWorkingDirectory)/AVD-Pool1-IMG/scripts/'
+    Contents: '**'
+    TargetFolder: '/'
+    OverWrite: true
+
