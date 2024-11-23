@@ -67,7 +67,7 @@ Write-Host "WinGet path $Winget"
 # Write-Host "$AppMoniker installation result: $Result"
 
 # Run WinGet Install
-&$winget install --silent --scope machine --id "$AppPublisher.$AppName"
+&$winget install --silent --scope machine --id "$AppPublisher.$AppName"  --accept-package-agreements
 
 Write-Host "###### $AppMoniker installation script is complete ######"
 exit 0
