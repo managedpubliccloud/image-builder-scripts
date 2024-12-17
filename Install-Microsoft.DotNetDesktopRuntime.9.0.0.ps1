@@ -18,6 +18,7 @@ $RootFolderApp = Join-Path -Path $RootFolder -ChildPath "$AppPublisher.$AppName"
 $AppMoniker = "$AppPublisher.$AppName.$AppVersion"
 
 $AppURI = "$URIRoot/$AppPublisher.$AppName.$AppVersion/$AppSetupFile"
+$AppURI = $AppURI.ToLower()
 $SetupFolderFile = Join-Path -Path $RootFolderApp -ChildPath $AppSetupFile
 
 Write-Host "###### Starting $AppPublisher $AppName ($AppVersion) installation script! ######"

@@ -18,6 +18,7 @@ $AppMoniker = "$AppPublisher.$AppName.$AppVersion"
 
 # Downloads
 $AppURI = "https://stethanmavdswpublicae1.blob.core.windows.net/builder-software-media/Microsoft.PowerShell.7.4.6/PowerShell-7.4.6-win-x64.msi"
+$AppURI = $AppURI.ToLower()
 $AppDownloadFile = $AppSetupFile
 
 Write-Host "###### Starting $AppPublisher $AppName ($AppVersion) installation script! ######"
