@@ -30,7 +30,7 @@ Expand-Archive -LiteralPath "$LocalPath\$fslogixInstaller" -DestinationPath "$Lo
 
 Write-Host "Installing FSLogix"
 $Result = Start-Process -FilePath "$LocalPath\FSLogix\x64\Release\FSLogixAppsSetup.exe" -ArgumentList "/install /quiet /norestart" -Wait -Passthru
-Write-Host "FSLogix installation result: $Result"
+Write-Host "FSLogix installation result: $($result.exitcode)"
 
 Write-Host "###### FSLogix installation script is complete ######"
 exit 0
