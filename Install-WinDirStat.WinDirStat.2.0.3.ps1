@@ -11,7 +11,7 @@ $AppPublisher = "WinDirStat"
 $AppName = "WinDirStat"
 $AppVersion = "2.0.3"
 $AppSetupFile = "WinDirStat-x64.msi"
-$URIRoot = "https://stetstavdsharedpublicae1.blob.core.windows.net/source/AVD-Source-Files"
+$URIRoot = "https://stethanmavdswpublicae1.blob.core.windows.net/builder-software-media"
 
 $RootFolder = "$env:programdata\ETHAN\ImageBuild"
 $RootFolderApp = Join-Path -Path $RootFolder -ChildPath "$AppPublisher.$AppName"
