@@ -51,7 +51,7 @@ function Get-NotepadppBinary {
 
     #download latest Notepad++ binary file from site.
     Write-Host "Downloading Notepad++ binary from [$BinarySourceUrl] to npp.latest.Installer.exe"
-    Invoke-WebRequest -Uri $BinarySourceUrl -OutFile "npp.latest.Installer.exe"-Verbose -TimeoutSec 60
+    Invoke-WebRequest -Uri $BinarySourceUrl -OutFile $SetupFolderFile -Verbose -TimeoutSec 60
 }
 
 
@@ -77,10 +77,11 @@ Write-Host "Downloading $AppMoniker from $AppURI to $SetupFolderFile"
 Get-NotepadppBinary
 
 # Do installation
+
 Write-Host "Installing $AppMoniker $SetupFolderFile"
 $arglist = "$ExeParams"
 Write-Host "Executing Start-Process -FilePath $SetupFolderFile -ArgumentList $arglist -Wait -Passthru"
-$Result = Start-Process -FilePath $SetupFolderFile -ArgumentList $arglist -Wait -Passthru
+#$Result = Start-Process -FilePath $SetupFolderFile -ArgumentList $arglist -Wait -Passthru
 Write-Host "$AppMoniker installation result: $($result.ExitCode)"
 
 Write-Host "###### $AppMoniker installation script is complete ######"
