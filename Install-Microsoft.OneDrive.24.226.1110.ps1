@@ -9,9 +9,9 @@
 
 # Package information
 $AppPublisher = "Microsoft" 
-$AppName = "OnDrive"
+$AppName = "OneDrive"
 $AppVersion = "24.226.1110"
-$AppSetupFile = "windowsdesktop-runtime-9.0.0-win-x64.exe"
+$AppSetupFile = "onedrivesetup.exe"
 $ExeParams = "/allusers /silent"
 $URIRoot = "https://stethanmavdswpublicae1.blob.core.windows.net/builder-software-media"
 
