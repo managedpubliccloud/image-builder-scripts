@@ -81,7 +81,7 @@ Get-NotepadppBinary
 Write-Host "Installing $AppMoniker $SetupFolderFile"
 $arglist = "$ExeParams"
 Write-Host "Executing Start-Process -FilePath $SetupFolderFile -ArgumentList $arglist -Wait -Passthru"
-#$Result = Start-Process -FilePath $SetupFolderFile -ArgumentList $arglist -Wait -Passthru
+$Result = Start-Process -FilePath $SetupFolderFile -ArgumentList $arglist -Wait -Passthru
 Write-Host "$AppMoniker installation result: $($result.ExitCode)"
 
 Write-Host "###### $AppMoniker installation script is complete ######"

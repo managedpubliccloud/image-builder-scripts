@@ -13,7 +13,7 @@ $AppName = "VCRedist"
 $AppVersion = "Latest"
 $AppSetupFile = "VC_redist.x64.exe"
 $ExeParams = "/install /passive /norestart"
-$URIRoot = "https://stethanmavdswpublicae1.blob.core.windows.net/builder-software-media"
+$URIRoot = "https://aka.ms/vs/17/release/vc_redist.x64.exe"
 
 # Script variables
 $RootFolder = "$env:programdata\ETHAN\ImageBuild"
