@@ -104,22 +104,22 @@ Write-Host "Updating registry settings for $AppMoniker"
 
 # AVD
 Write-Host "Setting Teams to AVD mode"
-New-Item -Path "HKLM:\SOFTWARE\Microsoft\Teams" -Force
+New-Item -Path "HKLM:\SOFTWARE\Microsoft\Teams" -Force -ErrorAction SilentlyContinue
 New-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Teams" -Name IsWVDEnvironment -PropertyType DWORD -Value 1 -Force
 
 # RemoteApp Desktop Sharing
 Write-Host "Enabling RemoteApp Desktop Sharing"
-New-Item -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server\AddIns\WebRTC Redirector\Policy" -Force
+New-Item -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server\AddIns\WebRTC Redirector\Policy" -Force -ErrorAction SilentlyContinue
 New-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server\AddIns\WebRTC Redirector\Policy" -Name ShareClientDesktop -PropertyType DWORD -Value 1 -Force
 
 # Disable Autoupdate
 Write-Host "Disabling autoupdate"
-New-Item -Path "HKLM:\SOFTWARE\Microsoft\Teams" -Force
+New-Item -Path "HKLM:\SOFTWARE\Microsoft\Teams" -Force -ErrorAction SilentlyContinue
 New-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Teams" -Name disableAutoUpdate -PropertyType DWORD -Value 1 -Force
 
 # Disable autostart
 Write-Host "Disabling autostart"
-New-Item -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" -Force
+New-Item -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" -Force -ErrorAction SilentlyContinue
 New-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" -Name EnableFullTrustStartupTasks -PropertyType DWORD -Value 0 -Force
 New-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" -Name EnableUwpStartupTasks -PropertyType DWORD -Value 0 -Force
 New-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" -Name SupportFullTrustStartupTasks -PropertyType DWORD -Value 0 -Force
