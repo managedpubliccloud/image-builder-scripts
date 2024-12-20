@@ -1,43 +1,18 @@
 <#
 .SYNOPSIS
-    XXXX installation script
+    Microsft Teams x64 Windows installation script
 .DESCRIPTION
-    This script downloads and installs XXX on a Windows machine.
+    Downloads latest bootsrapper and MSIX
+    Installs Teams via Bootstrapper
+    Updates registry settings for:
+        - AVD
+        - RemoteApp Desktop Sharing
+        - Autoupdate
+        - Autostart
 
-    https://support.microsoft.com/help/2977003/the-latest-supported-visual-c-downloads
-
-    HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Teams IsWVDEnvironment 	DWORD 	1
-    New-Item -Path "HKLM:\SOFTWARE\Microsoft\Teams" -Force
-New-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Teams" -Name IsWVDEnvironment -PropertyType DWORD -Value 1 -Force
-
-    Enable content sharing for Teams for RemoteApp
-    HKLM\SYSTEM\CurrentControlSet\Control\Terminal Server\AddIns\WebRTC Redirector\Policy
-    Add the ShareClientDesktop as a DWORD value.
-    Set the value to 1 to enable the feature.
-
-    Disable Autoupdate
-    Location: Computer\HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Teams
-    Name: disableAutoUpdate
-    Type: DWORD
-    Value: 1
-
-    Disable autostart
-    [HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System] 
-"EnableFullTrustStartupTasks"=dword:00000000
-"EnableUwpStartupTasks"=dword:00000000
-"SupportFullTrustStartupTasks"=dword:00000000
-"SupportUwpStartupTasks"=dword:00000000
-
-    Disable autostart #2
-    [HKEY_CURRENT_USER\Software\Classes\Local Settings\Software\Microsoft\Windows\CurrentVersion\AppModel\SystemAppData\MSTeams_8wekyb3d8bbwe\TeamsTfwStartupTask]
-"State"=dword:00000003
-"UserEnabledStartupOnce"=dword:00000001
-
-    TeamsTfwStartupTask  roaming - reasearch
-
-
-    Bootstrapper: https://go.microsoft.com/fwlink/?linkid=2243204&clcid=0x409
-    MSIX: https://go.microsoft.com/fwlink/?linkid=2196106
+    NB:
+        - Does not install VC++ Dependancies - https://support.microsoft.com/help/2977003/the-latest-supported-visual-c-downloads
+        - Does not configure TeamsTfwStartupTask for profiles (HKEY_CURRENT_USER\Software\Classes\Local Settings\Software\Microsoft\Windows\CurrentVersion\AppModel\SystemAppData\MSTeams_8wekyb3d8bbwe\TeamsTfwStartupTask)
 
 .NOTES
     See ./../Changelog.txt for version history.
@@ -123,6 +98,34 @@ $SetupFolderFileBootstrapper = Join-Path -Path $RootFolderApp -ChildPath $AppBoo
 Write-Host "Executing Start-Process -FilePath $SetupFolderFileBootstrapper -ArgumentList $arglist -Wait -Passthru"
 $Result = Start-Process -FilePath $SetupFolderFileBootstrapper -ArgumentList $arglist -Wait -Passthru
 Write-Host "$AppMoniker installation result: $($result.ExitCode)"
+
+# Update registry settings
+Write-Host "Updating registry settings for $AppMoniker"
+
+# AVD
+Write-Host "Setting Teams to AVD mode"
+New-Item -Path "HKLM:\SOFTWARE\Microsoft\Teams" -Force
+New-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Teams" -Name IsWVDEnvironment -PropertyType DWORD -Value 1 -Force
+
+# RemoteApp Desktop Sharing
+Write-Host "Enabling RemoteApp Desktop Sharing"
+New-Item -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server\AddIns\WebRTC Redirector\Policy" -Force
+New-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server\AddIns\WebRTC Redirector\Policy" -Name ShareClientDesktop -PropertyType DWORD -Value 1 -Force
+
+# Disable Autoupdate
+Write-Host "Disabling autoupdate"
+New-Item -Path "HKLM:\SOFTWARE\Microsoft\Teams" -Force
+New-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Teams" -Name disableAutoUpdate -PropertyType DWORD -Value 1 -Force
+
+# Disable autostart
+Write-Host "Disabling autostart"
+New-Item -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" -Force
+New-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" -Name EnableFullTrustStartupTasks -PropertyType DWORD -Value 0 -Force
+New-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" -Name EnableUwpStartupTasks -PropertyType DWORD -Value 0 -Force
+New-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" -Name SupportFullTrustStartupTasks -PropertyType DWORD -Value 0 -Force
+New-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" -Name SupportFullTrustStartupTasks -PropertyType DWORD -Value 0 -Force
+New-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" -Name SupportUwpStartupTasks -PropertyType DWORD -Value 0 -Force
+
 
 Write-Host "###### $AppMoniker installation script is complete ######"
 exit $result.ExitCode
