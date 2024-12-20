@@ -1,8 +1,8 @@
 <#
 .SYNOPSIS
-    XXXX installation script
+    Visual C++ Redistribuatable installation script
 .DESCRIPTION
-    This script downloads and installs XXX on a Windows machine.
+    This script downloads and installsthe latest x64 VC++ Redist on a Windows machine.
 .NOTES
     See ./../Changelog.txt for version history.
 #>
