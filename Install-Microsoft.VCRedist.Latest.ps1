@@ -2,7 +2,7 @@
 .SYNOPSIS
     Visual C++ Redistribuatable installation script
 .DESCRIPTION
-    This script downloads and installsthe latest x64 VC++ Redist on a Windows machine.
+    This script downloads and installsthe latest x64 VC++ Rediston a Windows machine.
 .NOTES
     See ./../Changelog.txt for version history.
 #>
@@ -30,6 +30,7 @@ Write-Host "App: $AppMoniker SetupFile: $AppSetupFile URI: $AppURI RootFolder: $
 if (!(Test-Path $RootFolderApp)) {New-Item -Path $RootFolderApp -ItemType Directory -Force | Out-Null; Write-Host "Created $RootFolderApp directory"} else {Write-Host "$RootFolderApp directory already exists"}
 
 # Download content
+$AppURI = $URIRoot
 Write-Host "Downloading $AppMoniker from $AppURI to $SetupFolderFile"
 try {
     $ProgressPreference = 'SilentlyContinue'
