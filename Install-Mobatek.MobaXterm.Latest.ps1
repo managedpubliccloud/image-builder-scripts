@@ -11,6 +11,7 @@
 $AppPublisher = "Mobatek" 
 $AppName = "MobaXterm"
 $AppVersion = "Latest"
+$RemoveFiles = ("C:\Users\Public\Desktop\MobaXterm.lnk")
 
 
 function main {
@@ -59,6 +60,13 @@ function main {
     Add-ScopeMachine
     Install-App "$AppPublisher.$AppName"
 
+    Write-Host "Cleanup files"
+    foreach ($File in $RemoveFiles) {
+        if (Test-Path $File) {
+            Remove-Item -Path $File -Force
+        }
+    }
+    
     Write-ToLog "###   END REQUEST   ###`n" "Magenta"
 
     Write-Host "###### $AppMoniker installation script is complete ######"
