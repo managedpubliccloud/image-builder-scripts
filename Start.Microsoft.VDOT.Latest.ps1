@@ -31,7 +31,7 @@ Write-Host "App: $AppMoniker SetupFile: $AppSetupFile URI: $AppURI RootFolder: $
 
 # Determine latest release
 Write-Host "Determining latest release of $Repo $File"
-$tag = (Invoke-WebRequest $releases | ConvertFrom-Json)[0].tag_name
+$tag = (Invoke-WebRequest $releases -UseBasicParsing| ConvertFrom-Json)[0].tag_name
 $AppURI = "https://github.com/$repo/archive/refs/tags/$tag.zip"
 
 
