@@ -389,7 +389,7 @@ function Install-App ($AppID, $AppArgs) {
 
         #Install App
         Write-Host  "-> Installing $AppID..."
-        $WingetArgs = "install --id $AppID -e --accept-package-agreements --accept-source-agreements -s winget -h $AppArgs" -split " "
+        $WingetArgs = "install --id $AppID -e --accept-package-agreements --verbose --accept-source-agreements -s winget -h $AppArgs" -split " "
         Write-Host  "-> Running: `"$Winget`" $WingetArgs"
         & "$Winget" $WingetArgs | Where-Object { $_ -notlike "   *" } #| Tee-Object -file $LogFile -Append
 
