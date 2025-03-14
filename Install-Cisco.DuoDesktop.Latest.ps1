@@ -8,8 +8,8 @@
 #>
 
 # Package information
-$AppPublisher = "Cisco Duo" 
-$AppName = "Duo Desktop"
+$AppPublisher = "CiscoDuo" 
+$AppName = "DuoDesktop"
 $AppVersion = "Latest"
 $AppSetupFile = "DuoDesktop-latest.msi"
 $MSIParams = "/quiet /norestart"
