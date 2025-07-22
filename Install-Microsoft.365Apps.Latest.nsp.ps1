@@ -36,7 +36,6 @@ $OfficeConfig = [xml]@"
   <Property Name="FORCEAPPSHUTDOWN" Value="TRUE" />
   <Property Name="DeviceBasedLicensing" Value="0" />
   <Property Name="SCLCacheOverride" Value="0" />
-  <Property Name="TenantId" Value="14d6904b-4295-4c5e-bb3a-fbaed7eae384" />
   <Updates Enabled="FALSE" />
   <RemoveMSI />
   <AppSettings>
