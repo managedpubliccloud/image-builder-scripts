@@ -219,11 +219,6 @@ function mainscript{
 }
 
 
-$output = mainscript
-
-
-
-
 # Function to get latest version from WinGet API
 function Get-LatestWinGetVersion {
     param(
@@ -405,3 +400,6 @@ function Download-FileWithRetry {
     }
     return $false
 }
+
+$output = mainscript
+return $output
