@@ -11,13 +11,15 @@
 .NOTES
     This is a template that can be adapted for any software in the WinGet repository
     Use package names from https://github.com/winget-pkgs/manifests
+
+    There is an issue with this script with packages that have an extra folder of versions - eg https://github.com/microsoft/winget-pkgs/tree/master/manifests/m/Microsoft/DotNet/Runtime/9/9.0.7
 #>
 
 param(
     [string]$PackageIdentifier = "WinDirStat.WinDirStat",
-    [string]$Architecture = "x64"
+    [string]$Architecture = "x64",
+    [switch]$WhatIf
 )
-
 
 function mainscript{
     
@@ -85,7 +87,15 @@ function mainscript{
 
         # Install based on installer type
         Write-Host "Installing $AppPublisher $AppName $AppVersion"
-
+        
+        If ($WhatIf) {
+            Write-Host "WhatIf mode enabled. No installation will be performed."
+            Write-Host "Would install: $SetupFilePath with type: $($installerInfo.Type)"
+            Write-Host "###### $PackageIdentifier installation script complete (WhatIf mode) ######"
+            exit $installerInfo
+        }
+    
+        
         $exitCode = 0
         switch ($installerInfo.Type) {
             "msi" {
@@ -252,15 +262,20 @@ function Get-LatestWinGetVersion {
                 # Get all version folders and sort to find latest
                 $versions = $response | Where-Object { $_.type -eq "dir" } | Select-Object -ExpandProperty name
                 
-                # Sort versions properly (handle semantic versioning)
-                $sortedVersions = $versions | Sort-Object { [Version]$_ } -Descending -ErrorAction SilentlyContinue
-                
-                if ($sortedVersions.Count -eq 0) {
-                    throw "No versions found for $PackageId - note API is case sensitve."
-                }
-                
-                $latestVersion = $sortedVersions[0]
+                # Get the latest version using enhanced sorting
+                $versionInfo = Get-LatestVersionFromList -Versions $versions -PackageId $PackageId
+                $latestVersion = $versionInfo.Latest
                 Write-Host "Found latest version: $latestVersion"
+
+                # # Sort versions properly (handle semantic versioning)
+                # $sortedVersions = $versions | Sort-Object { [Version]$_ } -Descending -ErrorAction SilentlyContinue
+                
+                # if ($sortedVersions.Count -eq 0) {
+                #     throw "No versions found for $PackageId - note API is case sensitve."
+                # }
+                
+                # $latestVersion = $sortedVersions[0]
+                # Write-Host "Found latest version: $latestVersion"
                 
                 return @{
                     Version = $latestVersion
@@ -286,14 +301,9 @@ function Get-LatestWinGetVersion {
                 # Get all version folders and sort to find latest
                 $versions = $response | Where-Object { $_.type -eq "dir" } | Select-Object -ExpandProperty name
                 
-                # Sort versions properly (handle semantic versioning)
-                $sortedVersions = $versions | Sort-Object { [Version]$_ } -Descending -ErrorAction SilentlyContinue
-                
-                if ($sortedVersions.Count -eq 0) {
-                    throw "No versions found for $PackageId - note API is case sensitve."
-                }
-                
-                $latestVersion = $sortedVersions[0]
+                # Get the latest version using enhanced sorting
+                $versionInfo = Get-LatestVersionFromList -Versions $versions -PackageId $PackageId
+                $latestVersion = $versionInfo.Latest
                 Write-Host "Found latest version: $latestVersion"
                 
                 return @{
@@ -307,16 +317,90 @@ function Get-LatestWinGetVersion {
             }
         }
 
-       
-
-
-
     }
     catch {
         Write-Host "Error getting latest version: $_"
         throw
     }
 }
+
+function Get-LatestVersionFromList {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string[]]$Versions,
+        
+        [Parameter(Mandatory = $false)]
+        [string]$PackageId = "Package"
+    )
+    
+    Write-Host "Found versions: $($Versions -join ', ')"
+    
+    # Enhanced version sorting to handle single digits and preview versions
+    $sortedVersions = @()
+    $semanticVersions = @()
+    $otherVersions = @()
+    
+    foreach ($version in $Versions) {
+        try {
+            # Handle single digit versions and preview versions
+            if ($version -match '^\d+$') {
+                # Single digit version like "9" -> treat as "9.0.0"
+                $semVer = [Version]"$version.0.0"
+                $semanticVersions += @{
+                    Original = $version
+                    Parsed = $semVer
+                    Priority = 1
+                }
+            }
+            elseif ($version -match '^\d+\.\d+') {
+                # Standard semantic version
+                $semVer = [Version]$version
+                $semanticVersions += @{
+                    Original = $version
+                    Parsed = $semVer
+                    Priority = 1
+                }
+            }
+            else {
+                # Non-numeric versions like "Preview"
+                $otherVersions += @{
+                    Original = $version
+                    Priority = 0
+                }
+            }
+        }
+        catch {
+            # Fallback for any parsing errors
+            $otherVersions += @{
+                Original = $version
+                Priority = 0
+            }
+        }
+    }
+    
+    # Sort semantic versions by parsed version, then add other versions
+    $sortedSemantic = $semanticVersions | Sort-Object { $_.Parsed } -Descending | ForEach-Object { $_.Original }
+    $sortedOther = $otherVersions | Sort-Object { $_.Original } -Descending | ForEach-Object { $_.Original }
+    
+    # Combine: semantic versions first, then other versions
+    $sortedVersions = $sortedSemantic + $sortedOther
+    
+    if ($sortedVersions.Count -eq 0) {
+        throw "No versions found for $PackageId - note API is case sensitive."
+    }
+    
+    $latestVersion = $sortedVersions[0]
+    
+    # Return both the latest version and the full sorted list
+    return @{
+        Latest = $latestVersion
+        AllVersions = $sortedVersions
+        SemanticVersions = $sortedSemantic
+        OtherVersions = $sortedOther
+    }
+}
+
+
 
 # Function to get installer info from manifest
 # Function to get installer info from manifest
