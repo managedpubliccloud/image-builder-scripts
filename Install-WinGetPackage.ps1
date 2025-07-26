@@ -4,7 +4,8 @@
 .DESCRIPTION
     This script dynamically fetches the latest version from WinGet repository and installs it
 .PARAMETER PackageIdentifier
-    The WinGet package identifier (e.g., "WinDirStat.WinDirStat")
+    The WinGet package identifier (e.g., "WinDirStat.WinDirStat" or "Microsoft.DotNet.DesktopRuntime")
+    IMPORTANT: Identifiers are case-sensitive and must match the format used in the WinGet repository.
 .PARAMETER Architecture
     The architecture to install (x64, x86, arm64). Default is x64
 .NOTES
@@ -62,6 +63,10 @@ function mainscript{
         $SetupFileName = "$AppPublisher.$AppName.$AppVersion$fileExtension"
         $SetupFilePath = Join-Path -Path $RootFolderApp -ChildPath $SetupFileName
         
+        Write-Host "Setup file path: $SetupFilePath"
+        write-host "Installer type: $($installerInfo.Type)"
+        Write-Host "Setup file name: $SetupFileName"
+
         # Download installer
         Write-Host "Downloading $SetupFileName to $SetupFilePath"
         Download-FileWithRetry -Url $installerInfo.Url -DestinationPath $SetupFilePath
@@ -228,33 +233,84 @@ function Get-LatestWinGetVersion {
     try {
         # Split package ID for folder structure
         $parts = $PackageId -split '\.'
-        $publisher = $parts[0]
-        $appName = $parts[1]
-        $firstLetter = $publisher.Substring(0,1).ToLower()
         
-        # Get the package folder from WinGet API
-        $apiUrl = "https://api.github.com/repos/microsoft/winget-pkgs/contents/manifests/$firstLetter/$publisher/$appName"
-        Write-Host "Checking WinGet API: $apiUrl"
+        # Handle different package identifier structures
+        switch ($parts.Count) {
+            2 {
+                # Simple two-part identifier like "WinDirStat.WinDirStat"
+                Write-Host "Fetching latest version for two-part identifier: $PackageId"
+                $publisher = $parts[0]
+                $appName = $parts[1]
+                $firstLetter = $publisher.Substring(0,1).ToLower()
+                Write-Host "Publisher: `t$publisher`nApp Name: `t$appName"
         
-        $response = Invoke-RestMethod -Uri $apiUrl -Method Get -ErrorAction Stop
-        
-        # Get all version folders and sort to find latest
-        $versions = $response | Where-Object { $_.type -eq "dir" } | Select-Object -ExpandProperty name
-        
-        # Sort versions properly (handle semantic versioning)
-        $sortedVersions = $versions | Sort-Object { [Version]$_ } -Descending -ErrorAction SilentlyContinue
-        
-        if ($sortedVersions.Count -eq 0) {
-            throw "No versions found for $PackageId"
+                # Get the package folder from WinGet API
+                $apiUrl = "https://api.github.com/repos/microsoft/winget-pkgs/contents/manifests/$firstLetter/$publisher/$appName"
+                Write-Host "Checking WinGet API: $apiUrl"
+                $response = Invoke-RestMethod -Uri $apiUrl -Method Get -ErrorAction Stop
+                
+                # Get all version folders and sort to find latest
+                $versions = $response | Where-Object { $_.type -eq "dir" } | Select-Object -ExpandProperty name
+                
+                # Sort versions properly (handle semantic versioning)
+                $sortedVersions = $versions | Sort-Object { [Version]$_ } -Descending -ErrorAction SilentlyContinue
+                
+                if ($sortedVersions.Count -eq 0) {
+                    throw "No versions found for $PackageId - note API is case sensitve."
+                }
+                
+                $latestVersion = $sortedVersions[0]
+                Write-Host "Found latest version: $latestVersion"
+                
+                return @{
+                    Version = $latestVersion
+                    ManifestPath = "manifests/$firstLetter/$publisher/$appName/$latestVersion"
+                }
+            }
+            3 {
+                # Three-part identifier like "Microsoft.DotNet.DesktopRuntime"
+                
+
+                Write-Host "Fetching latest version for three-part identifier: $PackageId"
+                $publisher = $parts[0]
+                $department = $parts[1]
+                $appName = $parts[2]
+                $firstLetter = $publisher.Substring(0,1).ToLower()
+                Write-Host "Publisher: `t$publisher`nDepartment: `t$department`nApp Name: `t$appName"
+
+                # Get the package folder from WinGet API
+                $apiUrl = "https://api.github.com/repos/microsoft/winget-pkgs/contents/manifests/$firstLetter/$publisher/$department/$appName"
+                Write-Host "Checking WinGet API: $apiUrl"
+                $response = Invoke-RestMethod -Uri $apiUrl -Method Get -ErrorAction Stop
+                
+                # Get all version folders and sort to find latest
+                $versions = $response | Where-Object { $_.type -eq "dir" } | Select-Object -ExpandProperty name
+                
+                # Sort versions properly (handle semantic versioning)
+                $sortedVersions = $versions | Sort-Object { [Version]$_ } -Descending -ErrorAction SilentlyContinue
+                
+                if ($sortedVersions.Count -eq 0) {
+                    throw "No versions found for $PackageId - note API is case sensitve."
+                }
+                
+                $latestVersion = $sortedVersions[0]
+                Write-Host "Found latest version: $latestVersion"
+                
+                return @{
+                    Version = $latestVersion
+                    ManifestPath = "manifests/$firstLetter/$publisher/$department/$appName/$latestVersion"
+                }
+            }
+            
+            default {
+                throw "Unsupported package identifier format: $PackageId. Expected format: 'Publisher.AppName' or 'Publisher.Department.AppName'."
+            }
         }
-        
-        $latestVersion = $sortedVersions[0]
-        Write-Host "Found latest version: $latestVersion"
-        
-        return @{
-            Version = $latestVersion
-            ManifestPath = "manifests/$firstLetter/$publisher/$appName/$latestVersion"
-        }
+
+       
+
+
+
     }
     catch {
         Write-Host "Error getting latest version: $_"
