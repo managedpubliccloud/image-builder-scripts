@@ -17,19 +17,29 @@
 
 param(
     [string]$PackageIdentifier = "WinDirStat.WinDirStat",
+    [ValidateSet("x64", "x86", "arm64", "neutral")]
     [string]$Architecture = "x64",
     [switch]$WhatIf
 )
 
 function mainscript{
     
-    # Parse package identifier
-    $PublisherAndApp = $PackageIdentifier -split '\.'
-    $AppPublisher = $PublisherAndApp[0]
-    $AppName = $PublisherAndApp[1]
-
-    $RootFolder = "$env:programdata\ETHAN\ImageBuild"
-    $RootFolderApp = Join-Path -Path $RootFolder -ChildPath "$AppPublisher.$AppName"
+    # Enhanced package identifier parsing
+    $parts = $PackageIdentifier -split '\.'
+    if ($parts.Count -lt 2) {
+        throw "Package ID must contain at least Publisher and AppName separated by dots"
+    }
+    
+    # Handle different package identifier structures
+    $AppPublisher = $parts[0]
+    if ($parts.Count -eq 2) {
+        $AppName = $parts[1]
+        $RootFolderApp = Join-Path -Path "$env:programdata\ETHAN\ImageBuild" -ChildPath "$AppPublisher.$AppName"
+    } else {
+        # For multi-part identifiers, use the full identifier for folder name
+        $AppName = $parts[1..($parts.Count-1)] -join '.'
+        $RootFolderApp = Join-Path -Path "$env:programdata\ETHAN\ImageBuild" -ChildPath $PackageIdentifier
+    }
 
     Write-Host "###### Starting $AppPublisher $AppName (Latest) installation script ######"
     
@@ -46,7 +56,7 @@ function mainscript{
         $AppVersion = $versionInfo.Version
         
         # Get installer info
-        $installerInfo = Get-InstallerInfo -ManifestPath $versionInfo.ManifestPath -Architecture $Architecture
+        $installerInfo = Get-InstallerInfo -ManifestPath $versionInfo.ManifestPath -Architecture $Architecture -PackageId $PackageIdentifier
         
         Write-Host "Latest version: $AppVersion"
         Write-Host "Installer URL: $($installerInfo.Url)"
@@ -62,12 +72,21 @@ function mainscript{
             default { ".exe" }
         }
         
-        $SetupFileName = "$AppPublisher.$AppName.$AppVersion$fileExtension"
+        $SetupFileName = "$($PackageIdentifier.Replace('.', '_')).$AppVersion$fileExtension"
         $SetupFilePath = Join-Path -Path $RootFolderApp -ChildPath $SetupFileName
         
         Write-Host "Setup file path: $SetupFilePath"
-        write-host "Installer type: $($installerInfo.Type)"
+        Write-Host "Installer type: $($installerInfo.Type)"
         Write-Host "Setup file name: $SetupFileName"
+
+        # WhatIf mode check - before downloading
+        If ($WhatIf) {
+            Write-Host "WhatIf mode enabled. No download or installation will be performed."
+            Write-Host "Would download: $($installerInfo.Url)"
+            Write-Host "Would install: $SetupFilePath with type: $($installerInfo.Type)"
+            Write-Host "###### $PackageIdentifier installation script complete (WhatIf mode) ######"
+            exit 0
+        }
 
         # Download installer
         Write-Host "Downloading $SetupFileName to $SetupFilePath"
@@ -83,17 +102,8 @@ function mainscript{
             Write-Host "File hash verified successfully"
         }
         
-        # Replace the Get-WmiObject code block with this updated version that uses CIM cmdlets
-
         # Install based on installer type
         Write-Host "Installing $AppPublisher $AppName $AppVersion"
-        
-        If ($WhatIf) {
-            Write-Host "WhatIf mode enabled. No installation will be performed."
-            Write-Host "Would install: $SetupFilePath with type: $($installerInfo.Type)"
-            Write-Host "###### $PackageIdentifier installation script complete (WhatIf mode) ######"
-            exit $installerInfo
-        }
     
         
         $exitCode = 0
@@ -266,16 +276,6 @@ function Get-LatestWinGetVersion {
                 $versionInfo = Get-LatestVersionFromList -Versions $versions -PackageId $PackageId
                 $latestVersion = $versionInfo.Latest
                 Write-Host "Found latest version: $latestVersion"
-
-                # # Sort versions properly (handle semantic versioning)
-                # $sortedVersions = $versions | Sort-Object { [Version]$_ } -Descending -ErrorAction SilentlyContinue
-                
-                # if ($sortedVersions.Count -eq 0) {
-                #     throw "No versions found for $PackageId - note API is case sensitve."
-                # }
-                
-                # $latestVersion = $sortedVersions[0]
-                # Write-Host "Found latest version: $latestVersion"
                 
                 return @{
                     Version = $latestVersion
@@ -311,9 +311,61 @@ function Get-LatestWinGetVersion {
                     ManifestPath = "manifests/$firstLetter/$publisher/$department/$appName/$latestVersion"
                 }
             }
+            4 {
+                # Four-part identifier like "Microsoft.Azure.Storage.Explorer"
+                Write-Host "Fetching latest version for four-part identifier: $PackageId"
+                $publisher = $parts[0]
+                $department1 = $parts[1]
+                $department2 = $parts[2]
+                $appName = $parts[3]
+                $firstLetter = $publisher.Substring(0,1).ToLower()
+                Write-Host "Publisher: `t$publisher`nDepartment: `t$department1/$department2`nApp Name: `t$appName"
+
+                # Get the package folder from WinGet API
+                $apiUrl = "https://api.github.com/repos/microsoft/winget-pkgs/contents/manifests/$firstLetter/$publisher/$department1/$department2/$appName"
+                Write-Host "Checking WinGet API: $apiUrl"
+                $response = Invoke-RestMethod -Uri $apiUrl -Method Get -ErrorAction Stop
+                
+                # Get all version folders and sort to find latest
+                $versions = $response | Where-Object { $_.type -eq "dir" } | Select-Object -ExpandProperty name
+                
+                # Get the latest version using enhanced sorting
+                $versionInfo = Get-LatestVersionFromList -Versions $versions -PackageId $PackageId
+                $latestVersion = $versionInfo.Latest
+                Write-Host "Found latest version: $latestVersion"
+                
+                return @{
+                    Version = $latestVersion
+                    ManifestPath = "manifests/$firstLetter/$publisher/$department1/$department2/$appName/$latestVersion"
+                }
+            }
             
             default {
-                throw "Unsupported package identifier format: $PackageId. Expected format: 'Publisher.AppName' or 'Publisher.Department.AppName'."
+                # Handle complex identifiers with 5+ parts
+                Write-Host "Fetching latest version for multi-part identifier: $PackageId"
+                $publisher = $parts[0]
+                $appParts = $parts[1..($parts.Count-1)]
+                $folderStructure = $appParts -join '/'
+                $firstLetter = $publisher.Substring(0,1).ToLower()
+                Write-Host "Publisher: `t$publisher`nFolder Structure: `t$folderStructure"
+
+                # Get the package folder from WinGet API
+                $apiUrl = "https://api.github.com/repos/microsoft/winget-pkgs/contents/manifests/$firstLetter/$publisher/$folderStructure"
+                Write-Host "Checking WinGet API: $apiUrl"
+                $response = Invoke-RestMethod -Uri $apiUrl -Method Get -ErrorAction Stop
+                
+                # Get all version folders and sort to find latest
+                $versions = $response | Where-Object { $_.type -eq "dir" } | Select-Object -ExpandProperty name
+                
+                # Get the latest version using enhanced sorting
+                $versionInfo = Get-LatestVersionFromList -Versions $versions -PackageId $PackageId
+                $latestVersion = $versionInfo.Latest
+                Write-Host "Found latest version: $latestVersion"
+                
+                return @{
+                    Version = $latestVersion
+                    ManifestPath = "manifests/$firstLetter/$publisher/$folderStructure/$latestVersion"
+                }
             }
         }
 
@@ -403,16 +455,28 @@ function Get-LatestVersionFromList {
 
 
 # Function to get installer info from manifest
-# Function to get installer info from manifest
 function Get-InstallerInfo {
     param(
         [string]$ManifestPath,
-        [string]$Architecture
+        [string]$Architecture,
+        [string]$PackageId
     )
     
     try {
+        # Extract package identifier from manifest path if not provided
+        if (-not $PackageId) {
+            $pathParts = $ManifestPath -split '/'
+            if ($pathParts.Count -ge 5) {
+                $publisher = $pathParts[2]
+                $appParts = $pathParts[3..($pathParts.Count-2)]
+                $PackageId = "$publisher.$($appParts -join '.')"
+            } else {
+                throw "Cannot extract package ID from manifest path: $ManifestPath"
+            }
+        }
+        
         # Get installer manifest file
-        $installerManifestUrl = "https://raw.githubusercontent.com/microsoft/winget-pkgs/master/$ManifestPath/$PackageIdentifier.installer.yaml"
+        $installerManifestUrl = "https://raw.githubusercontent.com/microsoft/winget-pkgs/master/$ManifestPath/$PackageId.installer.yaml"
         Write-Host "Fetching installer manifest: $installerManifestUrl"
         
         $manifestContent = Invoke-RestMethod -Uri $installerManifestUrl -ErrorAction Stop
