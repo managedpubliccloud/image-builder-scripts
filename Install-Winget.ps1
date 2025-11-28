@@ -451,6 +451,10 @@ function Main {
         if (Test-WinGetInstallation) {
             Write-Log "Winget is already installed and functional. No action needed." -Level "SUCCESS"
             Write-Log "=== Install-WingetV2.ps1 Completed Successfully ===" -Level "SUCCESS"
+            if (-not (Install-WinGetModule)) {
+                Write-Log "Failed to install Microsoft.WinGet.Client module. Installation cannot continue." -Level "ERROR"
+                exit 1
+            }
             exit 0
         }
         
