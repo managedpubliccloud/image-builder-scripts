@@ -156,13 +156,28 @@ function Install-NuGetProvider {
 
     Write-Log "Checking NuGet package provider..." -Level "INFO"
 
+    # Set PSGallery as trusted to avoid prompts during automation
+         Write-Log "Trusting PSGallery" -Level "INFO"
+        $gallery = Get-PSRepository -Name "PSGallery" -ErrorAction SilentlyContinue
+        if ($gallery -and $gallery.InstallationPolicy -ne "Trusted") {
+            $oldConfirmPreference = $ConfirmPreference
+            $ConfirmPreference = 'None'
+            Set-PSRepository -Name "PSGallery" -InstallationPolicy Trusted -ErrorAction Stop
+            $ConfirmPreference = $oldConfirmPreference
+            Write-Log "Set PSGallery as trusted repository." -Level "INFO"
+        }
+
+
     try {
         if (Get-PackageProvider -Name "NuGet" -ErrorAction SilentlyContinue) {
             Write-Log "NuGet provider is already installed." -Level "SUCCESS"
             return $true
         }
 
+        
         Write-Log "NuGet provider not found. Installing..." -Level "INFO"
+
+
         
         Install-PackageProvider -Name "NuGet" -Force -Confirm:$false -ErrorAction Stop -ForceBootstrap
         
