@@ -164,7 +164,7 @@ function Install-NuGetProvider {
 
         Write-Log "NuGet provider not found. Installing..." -Level "INFO"
         
-        Install-PackageProvider -Name "NuGet" -Force -Confirm:$false -ErrorAction Stop
+        Install-PackageProvider -Name "NuGet" -Force -Confirm:$false -ErrorAction Stop -ForceBootstrap
         
         Write-Log "NuGet provider installed successfully." -Level "SUCCESS"
         return $true
@@ -451,6 +451,10 @@ function Main {
         if (Test-WinGetInstallation) {
             Write-Log "Winget is already installed and functional. No action needed." -Level "SUCCESS"
             Write-Log "=== Install-WingetV2.ps1 Completed Successfully ===" -Level "SUCCESS"
+            if (-not (Install-NuGetProvider)) {
+                Write-Log "Failed to install NuGet provider. Installation cannot continue." -Level "ERROR"
+                exit 1
+            }
             if (-not (Install-WinGetModule)) {
                 Write-Log "Failed to install Microsoft.WinGet.Client module. Installation cannot continue." -Level "ERROR"
                 exit 1
