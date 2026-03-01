@@ -19,7 +19,8 @@
     { "Win32_Publisher": "VideoLAN",                       "Win32_DisplayName": "VLC media player",                                           "WinGet_Id": "VideoLAN.VLC" },
     { "Win32_Publisher": "Cisco Systems",                  "Win32_DisplayName": "Webex",                                                      "WinGet_Id": "Cisco.Webex" },
     { "Win32_Publisher": "WinDirStat Team",                "Win32_DisplayName": "WinDirStat",                                                 "WinGet_Id": "WinDirStat.WinDirStat" },
-    { "Win32_Publisher": "Zoom",                           "Win32_DisplayName": "Zoom Workplace",                                             "WinGet_Id": "Zoom.Zoom" }
+    { "Win32_Publisher": "Zoom",                           "Win32_DisplayName": "Zoom Workplace",                                             "WinGet_Id": "Zoom.Zoom" },
+    { "Win32_Publisher": "Microsoft",                      "Win32_DisplayName": "Microsoft Windows Desktop Runtime - 9.0.12 (x64)",           "WinGet_Id": "Microsoft.WindowsDesktopRuntime" }
   ],
   "Winget_LatestVersion": [
     { "WinGet_Id": "7zip.7zip",                    "Version": "26.00" },
@@ -41,6 +42,7 @@
     { "WinGet_Id": "VideoLAN.VLC",                 "Version": "3.0.23" },
     { "WinGet_Id": "Cisco.Webex",                  "Version": "46.2.1.34187" },
     { "WinGet_Id": "WinDirStat.WinDirStat",        "Version": "2.5.0" },
-    { "WinGet_Id": "Zoom.Zoom",                    "Version": "6.7.30439" }
+    { "WinGet_Id": "Zoom.Zoom",                    "Version": "6.7.30439" },
+    { "WinGet_Id": "Microsoft.WindowsDesktopRuntime",                    "Version": "9.0.12.35609" }
   ]
 }
