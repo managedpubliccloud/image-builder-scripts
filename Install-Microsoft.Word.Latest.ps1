@@ -16,12 +16,11 @@ $AppSetupFile = "setup.exe"
 #$ExeParams = ""
 $URIRoot = "https://stethanmavdswpublicae1.blob.core.windows.net/builder-software-media"
 
-
 # Office Config
 $OfficeConfig = [xml]@"
 <Configuration ID="9636bff2-567a-4044-9568-e724ea546fec">
-  <Info Description="AVD Base Install&#xA;- x64&#xA;- LTSC Semi-annual&#xA;- No updates&#xA;- Core apps only&#xA;- no Teams, OneDrive&#xA;- EN-US&#xA;- Shared Computer Activation, non-roaming&#xA;- No registry customisations" />
-  <Add OfficeClientEdition="64" Channel="SemiAnnual">
+  <Info Description="AVD Base Install Word Only&#xA;- x64&#xA;- Monthly Enterprise&#xA;- No updates&#xA;- Word only&#xA;- no Teams, OneDrive&#xA;- EN-US&#xA;- Shared Computer Activation, non-roaming&#xA;- No registry customisations" />
+  <Add OfficeClientEdition="64" Channel="MonthlyEnterprise">
     <Product ID="O365ProPlusEEANoTeamsRetail">
       <Language ID="en-us" />
       <ExcludeApp ID="Access" />
