@@ -10,7 +10,7 @@
 
 # Package information
 $AppPublisher = "Microsoft" 
-$AppName = "365AppsWord"
+$AppName = "365Apps"
 $AppVersion = "Latest"
 $AppSetupFile = "setup.exe"
 #$ExeParams = ""
