@@ -14,8 +14,8 @@
     skip the install/repair step when the installed version is already latest
     (or newer). If version detection fails, the script proceeds with repair.
 
-    This script intentionally avoids deprecated OneGet / manual NuGet provider
-    bootstrap logic.
+    Designed to run reliably in unattended/headless environments such as
+    Azure Packer image builds, AVD image templates, and CI pipelines.
 
 .PARAMETER IncludePrerelease
     Install the latest prerelease version of winget.
@@ -23,6 +23,19 @@
 .PARAMETER LogPath
     Optional path to the log file.
     Default: %TEMP%\Install-WingetV2.log
+
+.PARAMETER WinGetVerifyRetryCount
+    Number of times to retry winget detection after repair.
+    Default: 10
+
+.PARAMETER WinGetVerifyRetryDelay
+    Seconds to wait between each retry.
+    Default: 5
+
+.PARAMETER ModuleInstallTimeoutSec
+    Maximum seconds to wait for Microsoft.WinGet.Client module installation from PSGallery.
+    If the install exceeds this limit the script aborts with an error rather than hanging indefinitely.
+    Default: 180
 
 .EXAMPLE
     .\Install-Winget.Latest.ps1
@@ -51,7 +64,10 @@
 [CmdletBinding()]
 param(
     [switch]$IncludePrerelease,
-    [string]$LogPath = (Join-Path $env:TEMP "Install-WingetV2.log")
+    [string]$LogPath = (Join-Path $env:TEMP "Install-WingetV2.log"),
+    [ValidateRange(1, 60)][int]$WinGetVerifyRetryCount = 10,
+    [ValidateRange(1, 60)][int]$WinGetVerifyRetryDelay = 5,
+    [ValidateRange(30, 600)][int]$ModuleInstallTimeoutSec = 180
 )
 
 # ============================
@@ -144,10 +160,62 @@ function Install-WinGetClientModule {
 
     Write-Log "Checking Microsoft.WinGet.Client module..."
 
+    # --- FIX: Ensure NuGet provider is present first ---
+    # Packer/SYSTEM context often lacks NuGet, causing Install-Module to stall
+    # waiting for an interactive prompt that never comes.
+    Write-Log "Ensuring NuGet package provider is available..."
+    try {
+        Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force -Scope AllUsers -Confirm:$false -ErrorAction Stop | Out-Null
+        Write-Log "NuGet provider ready." "SUCCESS"
+    }
+    catch {
+        Write-Log "NuGet provider install failed: $_" "WARNING"
+        # Non-fatal — continue; PSGallery may still work if NuGet was already present.
+    }
+
+    # --- FIX: Trust PSGallery with Stop so failures are caught, not silently skipped ---
+    try {
+        Set-PSRepository -Name PSGallery -InstallationPolicy Trusted -ErrorAction Stop
+        Write-Log "PSGallery set to Trusted." "SUCCESS"
+    }
+    catch {
+        Write-Log "Could not set PSGallery to Trusted: $_" "WARNING"
+        # Non-fatal — the repo may already be trusted or module may already be installed.
+    }
+
     if (-not (Get-Module -ListAvailable Microsoft.WinGet.Client)) {
-        Write-Log "Installing Microsoft.WinGet.Client module..."
-        Set-PSRepository PSGallery -InstallationPolicy Trusted -ErrorAction SilentlyContinue
-        Install-Module Microsoft.WinGet.Client -Scope AllUsers -Force -ErrorAction Stop
+        Write-Log "Installing Microsoft.WinGet.Client module (timeout: ${ModuleInstallTimeoutSec}s)..."
+
+        # Run Install-Module in a background job so we can enforce a hard timeout.
+        # In headless AVD image builds, PSGallery can be slow or unresponsive and
+        # Install-Module has no built-in -TimeoutSec parameter.
+        $job = Start-Job -ScriptBlock {
+            Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force -Scope AllUsers -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
+            Set-PSRepository -Name PSGallery -InstallationPolicy Trusted -ErrorAction SilentlyContinue
+            Install-Module Microsoft.WinGet.Client `
+                -Repository PSGallery `
+                -Scope AllUsers `
+                -Force `
+                -AllowClobber `
+                -Confirm:$false `
+                -ErrorAction Stop
+        }
+
+        $completed = Wait-Job -Job $job -Timeout $ModuleInstallTimeoutSec
+        if (-not $completed) {
+            Stop-Job  -Job $job
+            Remove-Job -Job $job -Force
+            Write-Log "Microsoft.WinGet.Client install timed out after ${ModuleInstallTimeoutSec}s." "ERROR"
+            throw "Module install timed out - PSGallery may be unreachable from this image builder."
+        }
+
+        Receive-Job -Job $job -ErrorVariable jobError | Out-Null
+        Remove-Job -Job $job -Force
+        if ($jobError) {
+            Write-Log "Microsoft.WinGet.Client install failed: $jobError" "ERROR"
+            throw "Module install failed: $jobError"
+        }
+
         Write-Log "Microsoft.WinGet.Client installed." "SUCCESS"
     }
     else {
@@ -185,15 +253,23 @@ function Get-LatestWingetVersionString {
     [CmdletBinding()]
     param([switch]$IncludePrerelease)
 
-    # Primary source: GitHub releases (public)
+    # --- NOTE: GitHub API is hit unauthenticated. Azure shared egress IPs can be
+    #     rate-limited (HTTP 429). We handle this gracefully: a $null return causes
+    #     the caller to proceed with Repair-WinGetPackageManager. ---
     try {
         $headers = @{ "User-Agent" = "Install-Winget.Latest.ps1" }
         if ($IncludePrerelease) {
-            $releases = Invoke-RestMethod -Uri "https://api.github.com/repos/microsoft/winget-cli/releases?per_page=30" -Headers $headers -ErrorAction Stop
+            $releases = Invoke-RestMethod `
+                -Uri "https://api.github.com/repos/microsoft/winget-cli/releases?per_page=30" `
+                -Headers $headers `
+                -ErrorAction Stop
             $release = $releases | Where-Object { $_.prerelease -eq $true } | Select-Object -First 1
         }
         else {
-            $release = Invoke-RestMethod -Uri "https://api.github.com/repos/microsoft/winget-cli/releases/latest" -Headers $headers -ErrorAction Stop
+            $release = Invoke-RestMethod `
+                -Uri "https://api.github.com/repos/microsoft/winget-cli/releases/latest" `
+                -Headers $headers `
+                -ErrorAction Stop
         }
 
         $tag = $release.tag_name
@@ -201,10 +277,79 @@ function Get-LatestWingetVersionString {
         if ($normalized) { return $normalized }
     }
     catch {
-        Write-Log "Could not query latest winget release version: $_" "WARNING"
+        Write-Log "Could not query latest winget release version (rate-limit or network issue): $_" "WARNING"
     }
 
     return $null
+}
+
+# ============================
+# Direct MSIX Provisioning (PS 5.1 fallback)
+# ============================
+
+function Install-WinGetViaMsix {
+    param([switch]$IncludePrerelease)
+
+    Write-Log "Provisioning winget via direct MSIX download (PS 5.1 path)..."
+    $tempDir = Join-Path $env:TEMP "WinGetMsix"
+    New-Item -Path $tempDir -ItemType Directory -Force -ErrorAction SilentlyContinue | Out-Null
+
+    $savedProgressPreference = $ProgressPreference
+    $ProgressPreference = 'SilentlyContinue'
+
+    try {
+        $headers = @{ "User-Agent" = "Install-Winget.Latest.ps1" }
+        if ($IncludePrerelease) {
+            $releases = Invoke-RestMethod -Uri "https://api.github.com/repos/microsoft/winget-cli/releases?per_page=10" -Headers $headers -TimeoutSec 30 -ErrorAction Stop
+            $release  = $releases | Where-Object { $_.prerelease } | Select-Object -First 1
+        }
+        else {
+            $release  = Invoke-RestMethod -Uri "https://api.github.com/repos/microsoft/winget-cli/releases/latest" -Headers $headers -TimeoutSec 30 -ErrorAction Stop
+        }
+
+        $msixUrl    = ($release.assets | Where-Object { $_.name -like "*.msixbundle" }).browser_download_url | Select-Object -First 1
+        $licenseUrl = ($release.assets | Where-Object { $_.name -like "*License*.xml" }).browser_download_url | Select-Object -First 1
+
+        if (-not $msixUrl -or -not $licenseUrl) {
+            Write-Log "Could not locate winget MSIX bundle or license asset in GitHub release." "ERROR"
+            return $false
+        }
+
+        $vcLibsPath  = Join-Path $tempDir "VCLibs.appx"
+        $xamlPath    = Join-Path $tempDir "UIXaml.appx"
+        $msixPath    = Join-Path $tempDir "winget.msixbundle"
+        $licensePath = Join-Path $tempDir "License.xml"
+
+        Write-Log "Downloading VCLibs dependency..."
+        Invoke-WebRequest -Uri "https://aka.ms/Microsoft.VCLibs.x64.14.00.Desktop.appx" -OutFile $vcLibsPath -UseBasicParsing -TimeoutSec 60 -ErrorAction Stop
+
+        Write-Log "Downloading Microsoft.UI.Xaml dependency..."
+        Invoke-WebRequest -Uri "https://github.com/microsoft/microsoft-ui-xaml/releases/download/v2.8.6/Microsoft.UI.Xaml.2.8.x64.appx" -OutFile $xamlPath -UseBasicParsing -TimeoutSec 60 -ErrorAction Stop
+
+        Write-Log "Downloading winget MSIX bundle..."
+        Invoke-WebRequest -Uri $msixUrl -OutFile $msixPath -UseBasicParsing -TimeoutSec 180 -ErrorAction Stop
+
+        Write-Log "Downloading winget license..."
+        Invoke-WebRequest -Uri $licenseUrl -OutFile $licensePath -UseBasicParsing -TimeoutSec 30 -ErrorAction Stop
+
+        Write-Log "Running Add-AppxProvisionedPackage..."
+        Add-AppxProvisionedPackage -Online `
+            -PackagePath $msixPath `
+            -DependencyPackagePath $vcLibsPath, $xamlPath `
+            -LicensePath $licensePath `
+            -ErrorAction Stop | Out-Null
+
+        Write-Log "winget provisioned for all users via MSIX." "SUCCESS"
+        return $true
+    }
+    catch {
+        Write-Log "MSIX provisioning failed: $_" "ERROR"
+        return $false
+    }
+    finally {
+        $ProgressPreference = $savedProgressPreference
+        Remove-Item -Path $tempDir -Recurse -Force -ErrorAction SilentlyContinue
+    }
 }
 
 # ============================
@@ -233,11 +378,11 @@ function Install-WinGet {
     # If winget is installed, check if it's already at (or above) the latest version and skip install.
     if ($oldVersion) {
         $installedNorm = ConvertTo-WinGetVersionString -VersionString $oldVersion
-        $latestNorm = Get-LatestWingetVersionString -IncludePrerelease:$IncludePrerelease
+        $latestNorm    = Get-LatestWingetVersionString -IncludePrerelease:$IncludePrerelease
 
         if ($installedNorm -and $latestNorm) {
             $installedV = ConvertTo-VersionOrNull -VersionString $installedNorm
-            $latestV = ConvertTo-VersionOrNull -VersionString $latestNorm
+            $latestV    = ConvertTo-VersionOrNull -VersionString $latestNorm
 
             if ($installedV -and $latestV) {
                 if ($installedV -ge $latestV) {
@@ -269,15 +414,54 @@ function Install-WinGet {
         Write-Log "Prerelease channel enabled." "INFO"
     }
 
-    Write-Log "Running Repair-WinGetPackageManager..."
-    Repair-WinGetPackageManager @params
+    # Repair-WinGetPackageManager requires PowerShell 7+ (Core edition).
+    # In Windows PowerShell 5.1 try pwsh.exe first, then fall back to direct MSIX provisioning.
+    $isWindowsPowerShell = $PSVersionTable.PSEdition -ne 'Core'
 
-    Start-Sleep -Seconds 3
+    if ($isWindowsPowerShell) {
+        Write-Log "Windows PowerShell 5.1 detected - Repair-WinGetPackageManager requires PowerShell 7+." "WARNING"
+        $pwsh = Get-Command pwsh -ErrorAction SilentlyContinue
+        if ($pwsh) {
+            Write-Log "Invoking Repair-WinGetPackageManager via pwsh.exe..."
+            $repairCmd = "Import-Module Microsoft.WinGet.Client -Force; Repair-WinGetPackageManager -Force -AllUsers$(if ($IncludePrerelease) { ' -IncludePrerelease' })"
+            & $pwsh.Source -NonInteractive -NoProfile -Command $repairCmd
+            if ($LASTEXITCODE -ne 0) {
+                Write-Log "Repair-WinGetPackageManager via pwsh.exe failed (exit $LASTEXITCODE)." "ERROR"
+                return $false
+            }
+        }
+        else {
+            Write-Log "pwsh.exe not found - falling back to direct MSIX provisioning..." "WARNING"
+            if (-not (Install-WinGetViaMsix -IncludePrerelease:$IncludePrerelease)) {
+                return $false
+            }
+            # Add-AppxProvisionedPackage registers for future user logins, not the current
+            # SYSTEM session — Get-Command winget will never succeed here, so return early.
+            return $true
+        }
+    }
+    else {
+        Write-Log "Running Repair-WinGetPackageManager..."
+        Repair-WinGetPackageManager @params
+    }
 
-    # Verify version after repair
-    $newCmd = Get-Command winget -ErrorAction SilentlyContinue
-    if (-not $newCmd) {
-        Write-Log "winget installation failed." "ERROR"
+    # --- FIX: Replace fixed Start-Sleep with a retry loop ---
+    # AppX registration after Repair-WinGetPackageManager can take variable time,
+    # especially on a fresh Packer image. Poll instead of assuming a fixed delay.
+    Write-Log "Waiting for winget to become available (up to $($WinGetVerifyRetryCount * $WinGetVerifyRetryDelay)s)..."
+    $wingetFound = $false
+    for ($i = 1; $i -le $WinGetVerifyRetryCount; $i++) {
+        $newCmd = Get-Command winget -ErrorAction SilentlyContinue
+        if ($newCmd) {
+            $wingetFound = $true
+            break
+        }
+        Write-Log "winget not yet detected, retry $i/$WinGetVerifyRetryCount (waiting ${WinGetVerifyRetryDelay}s)..." "INFO"
+        Start-Sleep -Seconds $WinGetVerifyRetryDelay
+    }
+
+    if (-not $wingetFound) {
+        Write-Log "winget installation failed — not found after $($WinGetVerifyRetryCount * $WinGetVerifyRetryDelay)s." "ERROR"
         return $false
     }
 
@@ -301,12 +485,28 @@ function Test-WinGet {
 
     $cmd = Get-Command winget -ErrorAction SilentlyContinue
     if (-not $cmd) {
-        Write-Log "winget executable not found." "ERROR"
+        # In image build / SYSTEM context, Add-AppxProvisionedPackage registers winget for
+        # future user logins but not the current session — treat a provisioned package as success.
+        $provisioned = Get-AppxProvisionedPackage -Online -ErrorAction SilentlyContinue |
+            Where-Object { $_.DisplayName -eq 'Microsoft.DesktopAppInstaller' }
+        if ($provisioned) {
+            Write-Log "winget provisioned for all users (available on next user login). Version: $($provisioned.Version)" "SUCCESS"
+            return $true
+        }
+        Write-Log "winget executable not found and package not provisioned." "ERROR"
         return $false
     }
 
-    & $cmd.Source --version | Out-Null
-    Write-Log "winget verified successfully." "SUCCESS"
+    # --- FIX: Check exit code, not just presence ---
+    # winget can be present but broken (e.g. missing AppX registration).
+    # Discarding output with Out-Null masked this; now we capture and verify.
+    $output = & $cmd.Source --version 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        Write-Log "winget found but returned exit code $LASTEXITCODE. Output: $output" "ERROR"
+        return $false
+    }
+
+    Write-Log "winget verified successfully. Version: $($output.Trim())" "SUCCESS"
     return $true
 }
 
