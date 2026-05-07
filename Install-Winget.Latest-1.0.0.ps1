@@ -160,7 +160,6 @@ function Install-WinGetClientModule {
 
     Write-Log "Checking Microsoft.WinGet.Client module..."
 
-    # --- FIX: Ensure NuGet provider is present first ---
     # Packer/SYSTEM context often lacks NuGet, causing Install-Module to stall
     # waiting for an interactive prompt that never comes.
     Write-Log "Ensuring NuGet package provider is available..."
@@ -173,7 +172,6 @@ function Install-WinGetClientModule {
         # Non-fatal — continue; PSGallery may still work if NuGet was already present.
     }
 
-    # --- FIX: Trust PSGallery with Stop so failures are caught, not silently skipped ---
     try {
         Set-PSRepository -Name PSGallery -InstallationPolicy Trusted -ErrorAction Stop
         Write-Log "PSGallery set to Trusted." "SUCCESS"
@@ -253,9 +251,8 @@ function Get-LatestWingetVersionString {
     [CmdletBinding()]
     param([switch]$IncludePrerelease)
 
-    # --- NOTE: GitHub API is hit unauthenticated. Azure shared egress IPs can be
-    #     rate-limited (HTTP 429). We handle this gracefully: a $null return causes
-    #     the caller to proceed with Repair-WinGetPackageManager. ---
+    # GitHub API is hit unauthenticated. Azure shared egress IPs can be rate-limited
+    # (HTTP 429). A $null return causes the caller to proceed with Repair-WinGetPackageManager.
     try {
         $headers = @{ "User-Agent" = "Install-Winget.Latest.ps1" }
         if ($IncludePrerelease) {
@@ -426,8 +423,11 @@ function Install-WinGet {
             $repairCmd = "Import-Module Microsoft.WinGet.Client -Force; Repair-WinGetPackageManager -Force -AllUsers$(if ($IncludePrerelease) { ' -IncludePrerelease' })"
             & $pwsh.Source -NonInteractive -NoProfile -Command $repairCmd
             if ($LASTEXITCODE -ne 0) {
-                Write-Log "Repair-WinGetPackageManager via pwsh.exe failed (exit $LASTEXITCODE)." "ERROR"
-                return $false
+                Write-Log "Repair-WinGetPackageManager via pwsh.exe failed (exit $LASTEXITCODE). Falling back to MSIX provisioning..." "WARNING"
+                if (-not (Install-WinGetViaMsix -IncludePrerelease:$IncludePrerelease)) {
+                    return $false
+                }
+                return $true
             }
         }
         else {
@@ -445,7 +445,6 @@ function Install-WinGet {
         Repair-WinGetPackageManager @params
     }
 
-    # --- FIX: Replace fixed Start-Sleep with a retry loop ---
     # AppX registration after Repair-WinGetPackageManager can take variable time,
     # especially on a fresh Packer image. Poll instead of assuming a fixed delay.
     Write-Log "Waiting for winget to become available (up to $($WinGetVerifyRetryCount * $WinGetVerifyRetryDelay)s)..."
@@ -461,7 +460,7 @@ function Install-WinGet {
     }
 
     if (-not $wingetFound) {
-        Write-Log "winget installation failed — not found after $($WinGetVerifyRetryCount * $WinGetVerifyRetryDelay)s." "ERROR"
+        Write-Log "winget installation failed - not found after $($WinGetVerifyRetryCount * $WinGetVerifyRetryDelay)s." "ERROR"
         return $false
     }
 
@@ -497,9 +496,7 @@ function Test-WinGet {
         return $false
     }
 
-    # --- FIX: Check exit code, not just presence ---
     # winget can be present but broken (e.g. missing AppX registration).
-    # Discarding output with Out-Null masked this; now we capture and verify.
     $output = & $cmd.Source --version 2>&1
     if ($LASTEXITCODE -ne 0) {
         Write-Log "winget found but returned exit code $LASTEXITCODE. Output: $output" "ERROR"
