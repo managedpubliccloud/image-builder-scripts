@@ -10,7 +10,7 @@
 
 # Package information
 $AppPublisher   = "Microsoft" 
-$AppName        = "Configuration Manager OneTrace"
+$AppName        = "OneTrace"
 $AppVersion     = "Latest"
 $AppSetupFile   = "SupportCenterInstaller.msi"
 $Params         = "/quiet /norestart ADDLOCAL=OneTraceApplication"
