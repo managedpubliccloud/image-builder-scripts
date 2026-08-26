@@ -15,6 +15,9 @@
 $AppPublisher   = "Microsoft"
 $AppName        = "TeamsAVDRegFix"
 $AppVersion     = "Latest"
+$TestPaths      = @(
+                    "HKLM:\SOFTWARE\Microsoft\Teams"
+                   )        # See function Test-AppPaths below for details on supported path types and formats
 $CustID         = ""        # Public: leave empty. Private: set to customer ID (e.g. "WK")
 $ScriptType     = "Public"  # Public or Private - determines error return behavior
 $ScriptVersion  = "3.4.0"   # This script version
@@ -36,7 +39,6 @@ Function MainScript {
     $AppMoniker   = "$AppPublisher.$AppName.$AppVersion"
     $RegistryRoot = "HKLM:\Software\ETHAN"
     $RegistryPath = Join-Path $RegistryRoot -ChildPath "$AppPublisher.$AppName.$AppVersion"
-    $TestPaths    = @("$TargetKeyPath\$TargetValueName")
 
     Write-LogEntry "Starting $AppPublisher $AppName ($AppVersion) remediation script version $ScriptVersion" -Level Info -EventLog $true
     Write-LogEntry "App: $AppMoniker Target: $TargetKeyPath\$TargetValueName = $TargetValue" -Level Info
