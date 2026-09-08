@@ -2,32 +2,37 @@
 .Synopsis
    MAVD OpsScript Installer
 .DESCRIPTION
-   Configures Windows regional settings (Windows display language and language for non-Unicode programs)
-   Applies the settings only - verification and registry status are owned by the companion Verify script
+   Verifies Windows regional settings (en-AU) previously applied by
+   Install-Software-Windows.RegionalSettings.en-AU-3.4.0.ps1
+   Updates local software register with the final status
    IMPORTANT: Do not duplicate - always get a clean template from the source repo: https://dev.azure.com/eCorpSystems/Ethan.MAVD.Builder/_git/Ethan.MAVD.Builder.Software
 .NOTES
-   This is a configuration package, not a setup.exe/msi installer. It sets the Windows display
-   language, language for non-Unicode programs, Country or region (GeoId 12), and Regional
-   format to English (Australia) (en-AU), then propagates the settings to the Welcome screen and
-   Default User profile so new sessions on this shared host inherit them by default.
+   Companion verification script for Install-Software-Windows.RegionalSettings.en-AU-3.4.0.ps1.
+   That script only applies settings (Set-WinUserLanguageList, Set-WinUILanguageOverride,
+   Set-WinSystemLocale, Set-WinHomeLocation, Set-Culture, Copy-UserInternationalSettingsToSystem)
+   and cannot reliably verify SystemLocale or Regional format (culture) within the same
+   process/boot session - Set-WinSystemLocale genuinely requires a restart, and Get-Culture
+   reads the current process's cached CurrentThread culture, which only reflects a Set-Culture
+   change in a new process/sign-in.
 
-   This script only applies settings and does not verify them - SystemLocale and Regional format
-   (culture) can't be read back correctly until after a restart/new sign-in, so this script never
-   writes Status=INSTALLED (only Status=FAILED if a Set-* call throws). The companion script
-   Install-Software-Windows.RegionalSettings.en-AU-Verify-3.4.0.ps1 runs after the image build's
-   post-apply restart, performs the real verification, and is the sole writer of the final
-   HKLM:\Software\ETHAN\Windows.RegionalSettings.en-AU Status.
+   This script is meant to run as a separate customizer step AFTER the image build's
+   WindowsRestart step that follows the apply script (Azure Image Builder customize array:
+   ... -> WindowsRegionalSettings (apply) -> WindowsRestart -> WindowsRegionalSettingsVerify
+   (this script) -> ...). By the time this runs, every setting should be genuinely live, so this
+   script performs full hard verification (no soft/pending checks) and is the sole writer of the
+   final HKLM:\Software\ETHAN\Windows.RegionalSettings.en-AU Status - the apply script no longer
+   writes a success status itself, only a failure status if a Set-* call throws outright.
 
    Version     Date            Author      Notes
-   3.4.0       2026-09-08      KSM         Split into apply + Verify companion script - this script now only applies settings and logs a snapshot; Install-Software-Windows.RegionalSettings.en-AU-Verify-3.4.0.ps1 (run after the image build's post-apply restart) owns verification and the final registry Status
+   3.4.0       2026-09-08      KSM         Initial version - post-restart verification companion to Install-Software-Windows.RegionalSettings.en-AU-3.4.0.ps1
 #>
 
 # Package information
 $AppPublisher   = "Windows"
 $AppName        = "RegionalSettings"
 $AppVersion     = "en-AU"
-$TargetLanguage = "en-AU"   # BCP-47 language tag applied to Windows display language, user language list, and system locale (non-Unicode programs)
-$TargetGeoId    = 12        # GeoId for Country or region (home location) - 12 = Australia
+$TargetLanguage = "en-AU"   # BCP-47 language tag expected for display language, user language list, system locale, and regional format (culture)
+$TargetGeoId    = 12        # GeoId expected for Country or region (home location) - 12 = Australia
 $ScriptType     = "Public"  # Public or Private - determines error return behavior (see MainScript)
 $ScriptVersion  = "3.4.0"   # This script version
 
@@ -38,96 +43,37 @@ $ScriptVersion  = "3.4.0"   # This script version
 Function MainScript {
     Write-LogEntry -Message "Starting execution, log file: $LogFilePath" -Level Info
 
-    # Script variables
+    # Script variables - same AppMoniker/RegistryPath as the apply script, so this writes the
+    # final status for the same logical package
     $AppMoniker   = "$AppPublisher.$AppName.$AppVersion"
     $RegistryRoot = "HKLM:\Software\ETHAN"
     $RegistryPath = Join-Path $RegistryRoot -ChildPath $AppMoniker
 
-    Write-LogEntry "Starting $AppPublisher $AppName ($AppVersion) configuration script version $ScriptVersion" -Level Info -EventLog $true
+    Write-LogEntry "Starting $AppPublisher $AppName ($AppVersion) post-restart verification script version $ScriptVersion" -Level Info -EventLog $true
     Write-LogEntry "App: $AppMoniker TargetLanguage: $TargetLanguage TargetGeoId: $TargetGeoId" -Level Info
 
-    # Apply regional settings
+    $defaultProfileVerified     = $false
+    $defaultProfileGeoIdMatches = $false
+    $defaultProfileLangMatches  = $false
+
     try {
-        # International cmdlets (Set-WinSystemLocale, Set-WinUILanguageOverride, etc.) ship built-in on Windows 10/Server 2016+
+        # International cmdlets (Get-WinSystemLocale, Get-WinUILanguageOverride, etc.) ship built-in on Windows 10/Server 2016+
         Import-Module International -ErrorAction Stop
 
-        $currentDisplay = (Get-WinUILanguageOverride).Name
-        Write-LogEntry "Current Windows display language: $currentDisplay" -Level Info
+        $verifyDisplay      = (Get-WinUILanguageOverride).Name
+        $verifySystemLocale = (Get-WinSystemLocale).Name
+        $verifyPrimaryLang  = (Get-WinUserLanguageList)[0].LanguageTag
+        $verifyGeoId        = (Get-WinHomeLocation).GeoId
+        $verifyCulture      = (Get-Culture).Name
+        Write-LogEntry "Verification - DisplayLanguageOverride: $verifyDisplay, SystemLocale: $verifySystemLocale, PrimaryUserLanguage: $verifyPrimaryLang, GeoId: $verifyGeoId, RegionalFormat: $verifyCulture" -Level Info
 
-        # Ensure target language is present in the user language list and is first (Windows display language),
-        # preserving any other languages already configured
-        $languageList = Get-WinUserLanguageList
-        if ($languageList.LanguageTag -contains $TargetLanguage) {
-            $existing = $languageList | Where-Object { $_.LanguageTag -eq $TargetLanguage }
-            $others   = $languageList | Where-Object { $_.LanguageTag -ne $TargetLanguage }
-            $languageList = @($existing) + @($others)
-            Write-LogEntry "$TargetLanguage already present in user language list - moved to first position" -Level Info
-        } else {
-            $languageList.Insert(0, $TargetLanguage)
-            Write-LogEntry "Added $TargetLanguage to user language list" -Level Info
-        }
-        Set-WinUserLanguageList -LanguageList $languageList -Force
-        Write-LogEntry "Set-WinUserLanguageList applied: $($languageList.LanguageTag -join ', ')" -Level Info
-
-        # Windows display language (Settings > Time & language > Language & region > Windows display language)
-        Set-WinUILanguageOverride -Language $TargetLanguage
-        Write-LogEntry "Set-WinUILanguageOverride -Language $TargetLanguage applied (takes effect after next sign-in)" -Level Info
-
-        # Language for non-Unicode programs (Region > Additional settings > Change system locale)
-        $currentSystemLocale = (Get-WinSystemLocale).Name
-        Write-LogEntry "Current system locale (non-Unicode programs): $currentSystemLocale" -Level Info
-        if ($currentSystemLocale -ne $TargetLanguage) {
-            Set-WinSystemLocale -SystemLocale $TargetLanguage
-            Write-LogEntry "Set-WinSystemLocale -SystemLocale $TargetLanguage applied (takes effect after restart)" -Level Info
-        } else {
-            Write-LogEntry "System locale already set to $TargetLanguage - skipping" -Level Info
-        }
-
-        # Country or region / home location (Settings > Time & language > Language & region > Country or region)
-        $currentGeoId = (Get-WinHomeLocation).GeoId
-        Write-LogEntry "Current home location GeoId: $currentGeoId" -Level Info
-        if ($currentGeoId -ne $TargetGeoId) {
-            Set-WinHomeLocation -GeoId $TargetGeoId
-            Write-LogEntry "Set-WinHomeLocation -GeoId $TargetGeoId applied" -Level Info
-        } else {
-            Write-LogEntry "Home location already set to GeoId $TargetGeoId - skipping" -Level Info
-        }
-
-        # Regional format (Settings > Time & language > Language & region > Regional format) - drives
-        # date/time/number/currency formatting, distinct from the display/UI language set above
-        $currentCulture = (Get-Culture).Name
-        Write-LogEntry "Current Regional format (culture): $currentCulture" -Level Info
-        if ($currentCulture -ne $TargetLanguage) {
-            Set-Culture -CultureInfo $TargetLanguage
-            Write-LogEntry "Set-Culture -CultureInfo $TargetLanguage applied (takes effect after next sign-in)" -Level Info
-        } else {
-            Write-LogEntry "Regional format already set to $TargetLanguage - skipping" -Level Info
-        }
-
-        # Propagate current settings (incl. display language and home location) to Welcome screen and Default
-        # User profile so new sessions on this shared host inherit English (Australia) without needing to be
-        # set per-user
+        # Re-check the Default User profile template - confirms new/recreated profiles on this host
+        # will inherit the target settings, without needing to touch any existing profile
         $DefaultProfileHive = "C:\Users\Default\NTUSER.DAT"
-        $defaultProfileBeforeWrite = if (Test-Path $DefaultProfileHive) { (Get-Item $DefaultProfileHive).LastWriteTimeUtc } else { $null }
-
-        Copy-UserInternationalSettingsToSystem -WelcomeScreen $true -NewUser $true
-        Write-LogEntry "Copy-UserInternationalSettingsToSystem applied to Welcome screen and Default User profile" -Level Info
-
-        # Verify the Default User profile template was actually updated, since new FSLogix/local profiles are
-        # cloned from it - this confirms new profiles (or a profile recreated after deleting an existing
-        # FSLogix container) will pick up the target settings, without needing to touch any existing profile
-        $defaultProfileVerified       = $false
-        $defaultProfileTouched        = $false
-        $defaultProfileGeoIdMatches   = $false
-        $defaultProfileLangMatches    = $false
         try {
             if (-not (Test-Path $DefaultProfileHive)) {
                 throw "Default profile hive not found at $DefaultProfileHive"
             }
-
-            $defaultProfileAfterWrite = (Get-Item $DefaultProfileHive).LastWriteTimeUtc
-            $defaultProfileTouched = ($null -eq $defaultProfileBeforeWrite) -or ($defaultProfileAfterWrite -gt $defaultProfileBeforeWrite)
-            Write-LogEntry "Default profile hive LastWriteTimeUtc before/after: $defaultProfileBeforeWrite / $defaultProfileAfterWrite (Touched: $defaultProfileTouched)" -Level Info
 
             # Mount the Default profile's hive read-only under HKU so its registry values can be inspected directly
             $hiveName = "DefaultProfileCheck_$([guid]::NewGuid().ToString('N'))"
@@ -163,7 +109,7 @@ Function MainScript {
         }
     }
     catch {
-        $StatusMessage = "Failed to apply regional settings (Language $TargetLanguage, GeoId $TargetGeoId): $($_.Exception.Message)"
+        $StatusMessage = "Failed to read back regional settings for verification: $($_.Exception.Message)"
         Write-LogEntry -Message $StatusMessage -Level Error -EventLog $true
         $result = Update-PackageRegistryStatus -RegistryPath $RegistryPath -Success $false -StatusMessage $StatusMessage -ScriptVersion $ScriptVersion -AppPublisher $AppPublisher -AppName $AppName -AppVersion $AppVersion -ScriptType $ScriptType
         Write-LogEntry -Message $result.Message -Level Info
@@ -173,22 +119,31 @@ Function MainScript {
         return @{ Success = $false; Severity = "Error"; Message = $StatusMessage; Data = "" }
     }
 
-    # No in-process verification here by design: SystemLocale (Set-WinSystemLocale) genuinely
-    # requires a restart before it reads back correctly, and RegionalFormat/culture (Set-Culture)
-    # reads back via this process's cached CurrentThread culture, not the registry, so it won't
-    # reflect a change until a new process/sign-in either. Checking either immediately after
-    # applying them always produced a false mismatch. Verification (and the final registry Status)
-    # is owned entirely by the companion script Install-Software-Windows.RegionalSettings.en-AU-Verify-3.4.0.ps1,
-    # which the image build runs as a separate customizer step after the WindowsRestart that
-    # follows this script - see .NOTES.
-    $currentDisplay      = (Get-WinUILanguageOverride).Name
-    $currentSystemLocale = (Get-WinSystemLocale).Name
-    Write-LogEntry "Post-apply snapshot (informational only, not verified here) - DisplayLanguageOverride: $currentDisplay, SystemLocale: $currentSystemLocale" -Level Info
-    Write-LogEntry "Default User profile snapshot - Verified=$defaultProfileVerified, Touched=$defaultProfileTouched, GeoIdMatch=$defaultProfileGeoIdMatches, PreferredUILanguagesMatch(best-effort)=$defaultProfileLangMatches" -Level Info
+    # This runs after the mandatory post-apply restart (see .NOTES), so every setting should now
+    # be genuinely live - unlike the apply script, all checks here are hard requirements
+    $defaultProfileOK = (-not $defaultProfileVerified) -or $defaultProfileGeoIdMatches
+    $allMatch = ($verifyDisplay -eq $TargetLanguage) -and ($verifySystemLocale -eq $TargetLanguage) -and ($verifyPrimaryLang -eq $TargetLanguage) -and ($verifyGeoId -eq $TargetGeoId) -and ($verifyCulture -eq $TargetLanguage) -and $defaultProfileOK
+
+    if ($allMatch) {
+        # Update registry with the final configuration status
+        $StatusMessage = "Regional settings verified post-restart: DisplayLanguageOverride/SystemLocale/PrimaryUserLanguage/RegionalFormat = $TargetLanguage, GeoId = $TargetGeoId. Default User profile template verified=$defaultProfileVerified (GeoId match=$defaultProfileGeoIdMatches, UI language match=$defaultProfileLangMatches)."
+        $result = Update-PackageRegistryStatus -RegistryPath $RegistryPath -Success $true -StatusMessage $StatusMessage -ScriptVersion $ScriptVersion -AppPublisher $AppPublisher -AppName $AppName -AppVersion $AppVersion -ScriptType $ScriptType
+        Write-LogEntry -Message $result.Message -Level Info
+    } else {
+        Write-LogEntry "One or more checks failed" -Level Error
+        # Update registry with the final verification-failure status
+        $StatusMessage = "Regional settings verification failed post-restart - DisplayLanguageOverride: $verifyDisplay, SystemLocale: $verifySystemLocale, PrimaryUserLanguage: $verifyPrimaryLang, GeoId: $verifyGeoId, RegionalFormat: $verifyCulture, DefaultProfileGeoIdMatch: $defaultProfileGeoIdMatches (expected Language $TargetLanguage, GeoId $TargetGeoId)"
+        $result = Update-PackageRegistryStatus -RegistryPath $RegistryPath -Success $false -StatusMessage $StatusMessage -ScriptVersion $ScriptVersion -AppPublisher $AppPublisher -AppName $AppName -AppVersion $AppVersion -ScriptType $ScriptType
+        Write-LogEntry -Message $StatusMessage -Level Error -EventLog $true
+        if ($ScriptType -eq "Public") {
+            Exit 1
+        }
+        return @{ Success = $false; Severity = "Error"; Message = $StatusMessage; Data = "" }
+    }
 
     ## Wrap Up ##
     $duration = [math]::round(((New-TimeSpan -Start $Global:ScriptStart).TotalSeconds),1)
-    $Message = "Regional settings applied OK (Set-* calls did not throw). Duration: $duration seconds. A restart is required before SystemLocale/Regional format take effect - final verification and registry Status are written by the companion Verify script after that restart."
+    $Message = "Regional settings verification passed OK post-restart. Duration: $duration seconds."
     Write-LogEntry -Message $Message -Level Info -EventLog $true
     return @{ Success = $true; Severity = "Info"; Message = $Message; Data = "" }
 }
@@ -1029,7 +984,7 @@ function Stop-Logging {
 
 # Script setup - Edit if needed
 $Manufacturer = "ETHAN"             # Used in output and log file details
-#Requires -RunAsAdministrator       # Set-WinSystemLocale and Copy-UserInternationalSettingsToSystem require admin rights
+#Requires -RunAsAdministrator       # reg.exe load/unload of the Default profile hive requires admin rights
 #Requires -Version 5                # Specifiy minimum PowerShell version
 $LogPath = $env:LOCALAPPDATA        # Specify log output folder
 $NewLog = $true                     # Creates a new log each time the script is run (see end of script for options on rollover, archiving, etc.)
@@ -1060,10 +1015,5 @@ Return $Return #fin
 
 <#
 Release history:
-3.4.0    2026-09-07       - Initial version, sets Windows display language and language for non-Unicode programs to en-AU
-3.4.0    2026-09-07       - Added Country or region (home location) - GeoId 12 (Australia)
-3.4.0    2026-09-08       - Added direct verification of the Default User profile hive after Copy-UserInternationalSettingsToSystem
-3.4.0    2026-09-08       - Added Regional format (Set-Culture en-AU) - was previously not being set
-3.4.0    2026-09-08       - SystemLocale and RegionalFormat no longer gate success/failure verification - both require a restart/new sign-in to read back correctly, so checking them immediately after Set- always mismatched
-3.4.0    2026-09-08       - Split into apply + Verify companion script (Install-Software-Windows.RegionalSettings.en-AU-Verify-3.4.0.ps1) - this script applies settings only and never writes Status=INSTALLED; the Verify script runs after the post-apply restart and owns verification + final registry Status
+3.4.0    2026-09-08       - Initial version, post-restart verification companion to Install-Software-Windows.RegionalSettings.en-AU-3.4.0.ps1
 #>
