@@ -8,16 +8,17 @@
    IMPORTANT: Do not duplicate - always get a clean template from the source repo: https://dev.azure.com/eCorpSystems/Ethan.MAVD.Builder/_git/Ethan.MAVD.Builder.Software
 .NOTES
    This is a configuration package, not a setup.exe/msi installer. It sets the Windows display
-   language and the language for non-Unicode programs to English (Australia) (en-AU), and the
-   Country or region (home location) to Australia (GeoId 12), via the built-in "International"
-   PowerShell module, then copies the settings to the Welcome screen and Default User profile
+   language and the language for non-Unicode programs to English (Australia) (en-AU), the
+   Country or region (home location) to Australia (GeoId 12), and the Regional format (date/time/
+   number/currency formatting culture) to en-AU, via the built-in "International" PowerShell
+   module, then copies the settings to the Welcome screen and Default User profile
    (Copy-UserInternationalSettingsToSystem) so every new session on this shared host picks up
    English (Australia) by default. A restart is required for the system locale (non-Unicode
    programs) change to take full effect.
 
    IMPORTANT (execution context): Set-WinUserLanguageList / Set-WinUILanguageOverride /
-   Set-WinHomeLocation are HKCU-scoped - they only affect the profile the script runs under.
-   Set-WinSystemLocale is the one genuinely machine-wide (HKLM) setting. Copy-UserInternationalSettingsToSystem
+   Set-WinHomeLocation / Set-Culture are HKCU-scoped - they only affect the profile the script
+   runs under. Set-WinSystemLocale is the one genuinely machine-wide (HKLM) setting. Copy-UserInternationalSettingsToSystem
    only updates the logon screen (HKU\.DEFAULT) and the Default User profile template
    (C:\Users\Default\NTUSER.DAT) that new profiles are cloned from - it does NOT touch any
    already-existing FSLogix/local user profile. To bring an existing user onto en-AU, either
@@ -34,6 +35,7 @@
    3.4.0       2026-09-07      KSM         Initial version - sets Windows display language and language for non-Unicode programs to en-AU, propagated to Welcome screen and Default User profile
    3.4.0       2026-09-07      KSM         Added Country or region (home location) - GeoId 12 (Australia)
    3.4.0       2026-09-08      KSM         Added direct verification of the Default User profile hive (GeoId, best-effort UI language) after Copy-UserInternationalSettingsToSystem
+   3.4.0       2026-09-08      KSM         Added Regional format (Set-Culture en-AU) - was previously not being set
 #>
 
 # Package information
@@ -42,7 +44,6 @@ $AppName        = "RegionalSettings"
 $AppVersion     = "en-AU"
 $TargetLanguage = "en-AU"   # BCP-47 language tag applied to Windows display language, user language list, and system locale (non-Unicode programs)
 $TargetGeoId    = 12        # GeoId for Country or region (home location) - 12 = Australia
-$CustID         = "TRLF"    # Specify customer ID for private packages, do not specify for public
 $ScriptType     = "Public"  # Public or Private - determines error return behavior (see MainScript)
 $ScriptVersion  = "3.4.0"   # This script version
 
@@ -106,6 +107,17 @@ Function MainScript {
             Write-LogEntry "Set-WinHomeLocation -GeoId $TargetGeoId applied" -Level Info
         } else {
             Write-LogEntry "Home location already set to GeoId $TargetGeoId - skipping" -Level Info
+        }
+
+        # Regional format (Settings > Time & language > Language & region > Regional format) - drives
+        # date/time/number/currency formatting, distinct from the display/UI language set above
+        $currentCulture = (Get-Culture).Name
+        Write-LogEntry "Current Regional format (culture): $currentCulture" -Level Info
+        if ($currentCulture -ne $TargetLanguage) {
+            Set-Culture -CultureInfo $TargetLanguage
+            Write-LogEntry "Set-Culture -CultureInfo $TargetLanguage applied (takes effect after next sign-in)" -Level Info
+        } else {
+            Write-LogEntry "Regional format already set to $TargetLanguage - skipping" -Level Info
         }
 
         # Propagate current settings (incl. display language and home location) to Welcome screen and Default
@@ -182,24 +194,25 @@ Function MainScript {
     $verifySystemLocale = (Get-WinSystemLocale).Name
     $verifyPrimaryLang  = (Get-WinUserLanguageList)[0].LanguageTag
     $verifyGeoId        = (Get-WinHomeLocation).GeoId
-    Write-LogEntry "Verification - DisplayLanguageOverride: $verifyDisplay, SystemLocale: $verifySystemLocale, PrimaryUserLanguage: $verifyPrimaryLang, GeoId: $verifyGeoId" -Level Info
+    $verifyCulture      = (Get-Culture).Name
+    Write-LogEntry "Verification - DisplayLanguageOverride: $verifyDisplay, SystemLocale: $verifySystemLocale, PrimaryUserLanguage: $verifyPrimaryLang, GeoId: $verifyGeoId, RegionalFormat: $verifyCulture" -Level Info
     Write-LogEntry "Verification - Default User profile: Verified=$defaultProfileVerified, Touched=$defaultProfileTouched, GeoIdMatch=$defaultProfileGeoIdMatches, PreferredUILanguagesMatch(best-effort)=$defaultProfileLangMatches" -Level Info
 
     # Default profile GeoId is a hard check (stable, documented registry value) when verification was possible;
     # if the hive couldn't be inspected (e.g. locked), that failure doesn't itself fail the overall result -
     # PreferredUILanguages is logged as a best-effort signal only, since its exact format can vary by OS build
     $defaultProfileOK = (-not $defaultProfileVerified) -or $defaultProfileGeoIdMatches
-    $allMatch = ($verifyDisplay -eq $TargetLanguage) -and ($verifySystemLocale -eq $TargetLanguage) -and ($verifyPrimaryLang -eq $TargetLanguage) -and ($verifyGeoId -eq $TargetGeoId) -and $defaultProfileOK
+    $allMatch = ($verifyDisplay -eq $TargetLanguage) -and ($verifySystemLocale -eq $TargetLanguage) -and ($verifyPrimaryLang -eq $TargetLanguage) -and ($verifyGeoId -eq $TargetGeoId) -and ($verifyCulture -eq $TargetLanguage) -and $defaultProfileOK
 
     if ($allMatch) {
         # Update registry with configuration status
-        $StatusMessage = "Regional settings applied successfully: Windows display language and language for non-Unicode programs set to $TargetLanguage, Country or region set to GeoId $TargetGeoId. Default User profile template verified=$defaultProfileVerified (GeoId match=$defaultProfileGeoIdMatches, UI language match=$defaultProfileLangMatches) - new/recreated profiles on this host will inherit these settings. A restart is required for the system locale change to take full effect."
+        $StatusMessage = "Regional settings applied successfully: Windows display language, language for non-Unicode programs, and Regional format set to $TargetLanguage, Country or region set to GeoId $TargetGeoId. Default User profile template verified=$defaultProfileVerified (GeoId match=$defaultProfileGeoIdMatches, UI language match=$defaultProfileLangMatches) - new/recreated profiles on this host will inherit these settings. A restart is required for the system locale change to take full effect."
         $result = Update-PackageRegistryStatus -RegistryPath $RegistryPath -Success $true -StatusMessage $StatusMessage -ScriptVersion $ScriptVersion -AppPublisher $AppPublisher -AppName $AppName -AppVersion $AppVersion -ScriptType $ScriptType
         Write-LogEntry -Message $result.Message -Level Info
     } else {
         Write-LogEntry "One or more checks failed" -Level Error
         # Update registry with configuration success and verification failure status
-        $StatusMessage = "Regional settings applied, but verification failed - DisplayLanguageOverride: $verifyDisplay, SystemLocale: $verifySystemLocale, PrimaryUserLanguage: $verifyPrimaryLang, GeoId: $verifyGeoId, DefaultProfileGeoIdMatch: $defaultProfileGeoIdMatches (expected Language $TargetLanguage, GeoId $TargetGeoId)"
+        $StatusMessage = "Regional settings applied, but verification failed - DisplayLanguageOverride: $verifyDisplay, SystemLocale: $verifySystemLocale, PrimaryUserLanguage: $verifyPrimaryLang, GeoId: $verifyGeoId, RegionalFormat: $verifyCulture, DefaultProfileGeoIdMatch: $defaultProfileGeoIdMatches (expected Language $TargetLanguage, GeoId $TargetGeoId)"
         $result = Update-PackageRegistryStatus -RegistryPath $RegistryPath -Success $false -StatusMessage $StatusMessage -ScriptVersion $ScriptVersion -AppPublisher $AppPublisher -AppName $AppName -AppVersion $AppVersion -ScriptType $ScriptType
         Write-LogEntry -Message $StatusMessage -Level Error -EventLog $true
         if ($ScriptType -eq "Public") {
@@ -1085,4 +1098,5 @@ Release history:
 3.4.0    2026-09-07       - Initial version, sets Windows display language and language for non-Unicode programs to en-AU
 3.4.0    2026-09-07       - Added Country or region (home location) - GeoId 12 (Australia)
 3.4.0    2026-09-08       - Added direct verification of the Default User profile hive after Copy-UserInternationalSettingsToSystem
+3.4.0    2026-09-08       - Added Regional format (Set-Culture en-AU) - was previously not being set
 #>
